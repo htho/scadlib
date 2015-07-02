@@ -1,0 +1,9 @@
+{
+    "modules": {
+        "bigPlanet" : { "name" : "sunPlanet", "arguments" : "" },
+        "smallPlanet" : "secondPlanet"
+    },
+    "functions": {
+        "rfunc" : { "name" : "r_from_dia", "arguments" : "dia" }
+    }
+}
