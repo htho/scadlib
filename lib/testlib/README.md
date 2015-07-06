@@ -1,2 +1,2 @@
-# fzz2scad-lib/lib/testlib
+# scadlib/lib/testlib
 This is a library to test scadlib
