@@ -1,5 +1,5 @@
 '''
-    scadlib.py: A tool to create and manage libraries for OpenSCAD.
+    scadtoolLib.py: A tool to create and manage libraries for OpenSCAD.
 
     Copyright (C) 2015  Hauke Thorenz <htho@thorenz.net>
 
@@ -19,7 +19,6 @@
 # import statements: We use pythons included batteries!
 import re
 import os
-import json
 
 VERSION = 0.1
 
@@ -675,7 +674,13 @@ class ScadType():
     def getDependencies(self):
         return self.entityDependencies
 
-    def getDependencyTreeAndUnresolvedDependencies(self, fileList=list()):
+    def getDependenciesDeep(self):
+        ret = list(self.entityDependencies)
+        for entityDependency in self.entityDependencies:
+            ret.append(entityDependency.getDependenciesDeep())
+        return ret
+
+    def getDependencyTreeAndUnresolvedDependencies(self, fileList):
         dependencyTree = dict()
         unresolvedDependencies = list()
         for dependency in self.getDependencies():
@@ -690,15 +695,6 @@ class ScadType():
         if len(dependencyTree) == 0:
             dependencyTree = None
         return (dependencyTree, unresolvedDependencies)
-
-    @staticmethod
-    def reduceRedundanciesInDependencyTree(dependencyTree):
-        entities = list()
-        for entitiy, subTree in dependencyTree.items():
-            entities.append(entitiy)
-            if subTree is not None:
-                entities.extend(ScadType.reduceRedundanciesInDependencyTree(subTree))
-        return list(set(entities))
 
     def asJson(self):
         return "JSON EXPORT NOT IMPLEMENTED YET"
@@ -1476,269 +1472,94 @@ class ScadUseFileReference(ScadFileReference):
         ScadFileReference.asScad(self)
         return "use <{}>".format(self.toScadFile._printablePath)
 
-# ####################### SCRIPT PART ########################
-if __name__ == "__main__":
-    import argparse
 
-    def cmd_info_handler(args):
-        scadFileList = list()
-        for inFile in args.INPUT_FILE_OR_DIR:
-            if (os.path.isdir(inFile)):
-                scadFileList.extend(ScadFileFromFile.buildListFromDirectory(inFile, recursive=args.recursive, traverseSub=args.traverse_dirs))
+class ScadLibrary():
+
+    def __init__(self, sources=list(), recursive=False, traverseSub=False):
+        self.fileList = list()
+
+        for source in sources:
+            if (os.path.isdir(source)):
+                self.fileList.extend(ScadFileFromFile.buildListFromDirectory(source, recursive=recursive, traverseSub=traverseSub))
             else:
-                scadFileList.append(ScadFileFromFile.buildFromFile(inFile, args.recursive))
+                self.fileList.append(ScadFileFromFile.buildFromFile(source, recursive=recursive, referencedFromScadFile=None))
 
-        toOutput = list()
+        printConsole("FILES in Library:", 1)
+        for f in self.fileList:
+            printConsole("    " + repr(f) + "\n", 1)
 
-        if args.self:
-            toOutput.extend(scadFileList)
-#  This is not as clever as it seems: We don't want all files
-#  dumped recursively.
-#            if args.recursive:
-#                for scadFile in scadFileList:
-#                    for ref in scadFile.getAvailableReferences():
-#                        toOutput.append(ref.toScadFile)
-
-        if args.modules:
-            for f in scadFileList:
-                toOutput.extend(f.getAvailableModules())
-
-        if args.variables:
-            for f in scadFileList:
-                toOutput.extend(f.getAvailableVariables())
-
-        if args.functions:
-            for f in scadFileList:
-                toOutput.extend(f.getAvailableFunctions())
-
-        if args.includes:
-            for f in scadFileList:
-                toOutput.extend(f.getIncludedFiles())
-
-        if args.uses:
-            for f in scadFileList:
-                toOutput.extend(f.getUsedFiles())
-
-        if args.regex:
-            # TODO: Use regular expressions to filter the output.
-            pass
-
-        if args.with_meta:
-            # TODO: filter the output.
-            pass
-
-        if args.with_meta_key_value:
-            # TODO: filter the output.
-            pass
-
-        outString = ""
-
-        for out in toOutput:
-            if args.as_scad:
-                if isinstance(out, ScadFile):
-                    outString = outString + out.asScad(args.recursive) + "\n" + "\n"
-                else:
-                    outString = outString + out.asScad() + "\n" + "\n"
-            elif args.as_json:
-                if isinstance(out, ScadFile):
-                    outString = outString + out.asJson() + "\n" + "\n"
-                else:
-                    outString = outString + out.asJson() + "\n" + "\n"
-            elif args.as_dump:
-
-                if isinstance(out, ScadFile):
-                    outString = outString + out.asDump(args.recursive) + "\n" + "\n"
-                else:
-                    outString = outString + out.asDump() + "\n" + "\n"
+    def findResolutions(self, dependencies):
+        """Finds the entities that resolve the given dependencies.
+        returns a tupel of the dependencyTree and a list of the Attributes
+        that could not be resolved.
+        """
+        dependencyTree = dict()
+        unresolvedDependencies = list()
+        for dependency in dependencies:
+            fileWithResolution = dependency.findResolution(self.fileList)
+            if dependency.hasResolution():
+                resolution = dependency.getResolution()
+                dependencyTree[resolution], unres = resolution.getDependencyTreeAndUnresolvedDependencies([fileWithResolution] + self.fileList)
+                unresolvedDependencies.extend(unres)
             else:
-                outString = outString + str(out) + "\n" + "\n"
+                #  raise RuntimeError("No resolution for '{}' found.".format(repr(dependency)))
+                unresolvedDependencies.append(dependency)
+        if len(dependencyTree) == 0:
+            dependencyTree = None
+        return (dependencyTree, unresolvedDependencies)
 
-        if args.as_scad:
-            outFile = determineOutFile(args.INPUT_FILE_OR_DIR[0], "scad.info.", "scad")
-        elif args.as_json:
-            outFile = determineOutFile(args.INPUT_FILE_OR_DIR[0], "scad.info.", "json")
-        elif args.as_dump:
-            outFile = determineOutFile(args.INPUT_FILE_OR_DIR[0], "scad.info.dump.", "scad")
-        else:
-            outFile = determineOutFile(args.INPUT_FILE_OR_DIR[0], "scad.info.", "txt")
+    def getAvailableEntities(self):
+        ret = list()
+        for f in self.fileList:
+            ret.extend(f.getAvailableEntities())
+        return ret
 
-        outputHelper(outString, outFile)
+    def getAvailableModules(self):
+        ret = list()
+        for f in self.fileList:
+            ret.extend(f.getAvailableModules())
+        return ret
 
-    def cmd_compile_handler(args):
-        libraryFileList = list()
-        if args.lib is not None:
-            for libFile in args.lib:
-                if (os.path.isdir(libFile)):
-                    libraryFileList.extend(ScadFileFromFile.buildListFromDirectory(libFile, recursive=args.recursive, traverseSub=args.traverse_dirs))
-                else:
-                    libraryFileList.append(ScadFileFromFile.buildFromFile(libFile, args.recursive))
+    def getAvailableVariables(self):
+        ret = list()
+        for f in self.fileList:
+            ret.extend(f.getAvailableVariables())
+        return ret
 
-        inputFile = ScadFileFromFile.buildFromFile(args.INPUT_FILE, True)
+    def getAvailableFunctions(self):
+        ret = list()
+        for f in self.fileList:
+            ret.extend(f.getAvailableFunctions())
+        return ret
 
-        if inputFile.metaDataIsAutoGenerated:
-            raise ValueError("'{}' did not have a @filename tag with the correct name. IS THE FILENAME TAG CORRECT? We can't build a library without knowing the dependencies.".format(args.INPUT_FILE))
+    def getIncludedFiles(self):
+        ret = list()
+        for f in self.fileList:
+            ret.extend(f.getIncludedFiles())
+        return ret
 
-        printConsole(str(inputFile) + "\n", 2)
+    def getUsedFiles(self):
+        ret = list()
+        for f in self.fileList:
+            ret.extend(f.getUsedFiles())
+        return ret
 
-        if args.mapping:
-            if os.path.isfile(args.mapping):
-                with open(args.mapping, 'r') as f:
-                    jsonMapping = json.load(f)
-            else:
-                jsonMapping = json.loads(args.mapping)
+    def getReferencedFiles(self):
+        ret = list()
+        for f in self.fileList:
+            ret.extend([r.getTarget() for r in f.getReferencedFiles()])
+        return ret
 
-            printConsole("\nJSON-Mapping:" + txt_prefix_each_line(txt_pretty_print(jsonMapping), "    ") + "\n", 1)
+    def findEntity(self, description=dict()):
+        # TODO define a json syntax that allows searching for entities
+        # based on information given in the ScadDoc.
+        pass
 
-            mappingFile = ScadFile()
-
-            for entityType, mapping in jsonMapping.items():
-                for localName, info in mapping.items():
-                    if not isinstance(info, dict):
-                        info = {"name": info}
-                    entity = None
-                    if entityType == "modules":
-                        if "name" not in info.keys():
-                            raise ValueError("For modules, a name must be specified.")
-                        if "arguments" not in info.keys():
-                            # raise ValueError("For modules, arguments must be specified.")
-                            info["arguments"] = ""
-                        metaData = ScadDoc("@description: A wrapper from '{source}' to '{target}'.\n@module-dependency {target}".format(source=localName, target=info["name"]), ScadModule)
-                        entity = ScadModule(localName, arguments=info["arguments"], content="{}({});".format(info["name"], info["arguments"]), metaData=metaData)
-                    elif entityType == "functions":
-                        if "name" not in info.keys():
-                            raise ValueError("For functions, a name must be specified.")
-                        if "arguments" not in info.keys():
-                            # raise ValueError("For functions, arguments must be specified.")
-                            info["arguments"] = ""
-                        metaData = ScadDoc("@description: A wrapper from '{source}' to '{target}'.\n@function-dependency {target}".format(source=localName, target=info["name"]), ScadFunction)
-                        entity = ScadFunction(localName, arguments=info["arguments"], content="{}({});".format(info["name"], info["arguments"]), metaData=metaData)
-                    elif entityType == "variables":
-                        if "name" not in info.keys():
-                            raise ValueError("For variables, a name must be specified.")
-                        metaData = ScadDoc("@description: A wrapper from '{source}' to '{target}'.\n@variable-dependency {target}".format(source=localName, target=info["name"]), ScadVariable)
-                        entity = ScadVariable(localName, info["name"], metaData=metaData)
-                    else:
-                        raise ValueError("The key for the mapping type must be: 'module', 'function' or 'variable' but is '{}'".format(entityType))
-                    mappingFile.addDefinedEntity(entity)
-
-            printConsole("\nMapping-Entities:\n" + txt_prefix_each_line(txt_pretty_print(mappingFile.getDefinedEntities()), "    ") + "\n", 1)
-            libraryFileList = [mappingFile] + libraryFileList
-
-        printConsole("Looking for resolutions in these files:\n" + txt_prefix_each_line(txt_pretty_print(libraryFileList), "    ") + "\n", 2)
-
-        dependencyTree, unresolvedDependencies = inputFile.getDependencyTreeAndUnresolvedDependencies([inputFile] + libraryFileList)
-
-        if dependencyTree is None:
-            printConsole("""\nWARNING: The dependency tree is empty!
-    This means NONE of the defined dependencies could be resolved.
-
-    You may try --traverse in order to search subdirectories.
-    Check the name of the defined dependencies.
-    Did you forget to include needed files that are not part of the library?
-
-    Dummies will be created...""", 1)
-            dependencyTree = dict()
-
-        printConsole("\nDependency Tree:" + txt_pretty_print(dependencyTree, kvsep=" depends on: "), 2)
-
-        neededEntities = ScadEntity.reduceRedundanciesInDependencyTree(dependencyTree)
-
-        if len(unresolvedDependencies) > 0:
-            dummyResolutions = list()
-            printConsole("\nUnresolved Dependencies:\n" + txt_prefix_each_line(txt_pretty_print(unresolvedDependencies), "    "), 1)
-            if not args.dont_create_dummies:
-                printConsole("\nCreating dummies for the unresolved dependencies..." + txt_pretty_print(neededEntities), 2)
-                for dependency in unresolvedDependencies:
-                    dummyResolutions.append(dependency.getDummyResolution())
-            printConsole(txt_prefix_each_line(txt_pretty_print(dummyResolutions), "    "), 3)
-            neededEntities = neededEntities + dummyResolutions
-            neededEntities = list(set(neededEntities))  # should be unnecessary as there should be no duplicates.
-
-        # remove entities that are defined in the input file
-        neededEntities = list(filter(lambda entity: entity not in inputFile.getDefinedEntities(), neededEntities))
-        printConsole("\nEntities in library:\n" + txt_prefix_each_line(txt_pretty_print(neededEntities), "    "), 2)
-
-        if args.all_in_one:
-            outFileName = determineOutFile(args.INPUT_FILE, "allinone.", "scad")
-            if outFileName is not None:
-                inputFile.metaData.set("filename", outFileName)
-            else:
-                inputFile.metaData.set("filename", "")
-            outString = inputFile.metaData.asScad() + inputFile.asCompilationDump(neededEntities)
-
-        else:
-            outFileName = determineOutFile(args.INPUT_FILE, "lib.", "scad")
-            outScadFile = ScadFile(definedEntities=neededEntities)
-            if outFileName is not None:
-                outScadFile.metaData.add("filename", outFileName)
-            outString = outScadFile.asScad(dummiesFirst=True)
-
-        outputHelper(outString, outFileName)
-
-    # Argument parsing
-    parser = argparse.ArgumentParser(description="Helps to create and maintain fzz2scad libraries.")
-
-    parser.add_argument("-v", "--verbose", action="count", default=0, help="-v -vv- -vvv increase output verbosity")
-    parser.add_argument("-q", "--quiet", action="store_true", help="suppress any output except for final results.")
-    parser.add_argument('-V', '--version', action='version', version="%(prog)s " + str(VERSION))
-
-    subparsers = parser.add_subparsers(dest="cmd")
-    parser_info = subparsers.add_parser("info", description="Show information about the given file.")
-    parser_info_group_input = parser_info.add_argument_group(title="input", description="How to handle the input files.")
-    parser_info_group_input.add_argument("INPUT_FILE_OR_DIR", nargs="+", help="The files/directories that should be searched.")
-    parser_info_group_input.add_argument("-t", "--traverse-dirs", action="store_true", help="If a directory is given traverse through the sub directories.")
-    parser_info_group_input.add_argument("-r", "--recursive", action="store_true", help="look for information recursively (look in included and used files).")
-
-    parser_info_group_output = parser_info.add_argument_group(title="output", description="What should the output look line?")
-    parser_info_group_output.add_argument("-o", "--output", nargs="?", default=None, const="", help="write output to an .scad File instead to console. (if not defined further 'foo.scad' becomes 'foo.info.scad'.)")
-
-    parser_info_group_output_override = parser_info_group_output.add_mutually_exclusive_group()
-    parser_info_group_output_override.add_argument("--override", action="store_true", help="Override existing output files without asking.")
-    parser_info_group_output_override.add_argument("--dont-override", action="store_true", help="Do not override any existing output files - Print to console instead.")
-    parser_info_group_output_override.add_argument("--ask", default="true", action="store_true", help="Ask if an existing file should be overwritten. (default)")
-
-    parser_info_group_output_type = parser_info_group_output.add_mutually_exclusive_group()
-    parser_info_group_output_type.add_argument("--as-scad", action="store_true", help="give output that can be used in .scad files.")
-    parser_info_group_output_type.add_argument("--as-json", action="store_true", help="give output that is json encoded. Useful for writing a better filter engine. (NOT IMPLEMENTED YET).")
-    parser_info_group_output_type.add_argument("--as-dump", action="store_true", help="dump the relevant sections from the content. If recursive, included or used sections will be copied.")
-
-    parser_info_group_selection = parser_info.add_argument_group(title="selection", description="Which information should be extracted?")
-    parser_info_group_selection.add_argument("-s", "--self", action="store_true", help="show information about the file itself.")
-    parser_info_group_selection.add_argument("-m", "--modules", action="store_true", help="list the modules in the given file.")
-    parser_info_group_selection.add_argument("-v", "--variables", action="store_true", help="list the variables in the given file.")
-    parser_info_group_selection.add_argument("-f", "--functions", action="store_true", help="list the functions in the given file.")
-    parser_info_group_selection.add_argument("-i", "--includes", action="store_true", help="list the files that are included in this file.")
-    parser_info_group_selection.add_argument("-u", "--uses", action="store_true", help="list the files that are used by this file.")
-
-    parser_info_group_filter = parser_info.add_argument_group(title="filter", description="Filter the entities. (NOT IMPLEMENTED YET!)")
-    parser_info_group_filter.add_argument("--with-meta", help="Only show results with the given metadata field. (NOT IMPLEMENTED YET!)")
-    parser_info_group_filter.add_argument("--with-meta-key-value", nargs=2, help="Only show results where the given metadata field has the given value. (NOT IMPLEMENTED YET!)")
-    parser_info_group_filter.add_argument("--regex", action="store_true", help="Use regular expressions to specify fields and values. (NOT IMPLEMENTED YET!)")
-
-    parser_compile = subparsers.add_parser("compile", description="Create a library file for the given File.")
-    parser_compile_group_input = parser_compile.add_argument_group(title="input", description="How to handle the input files.")
-
-    parser_compile_group_input.add_argument("INPUT_FILE", help="The file to create the library for.")
-    parser_compile_group_input.add_argument("-l", "--lib", nargs="+", help="The files/directories that should be searched for the needed entities to create this library.")
-    parser_compile_group_input.add_argument("-m", "--mapping", help="A json file or a json string that specifies name mappings for modules, variables and functions. Simple Example:" + """'{ "modules": { "moduleName" : "implementingModuleName" } }'""" + " Example with arguments: " + """'{ "functions": { "functionName" : { "name" : "implementingFunctionName", "arguments" : "argumentString" } } }'""")
-
-    parser_compile_group_input.add_argument("-t", "--traverse-dirs", action="store_true", help="If a directory is given traverse through the sub directories to find .scad files.")
-    parser_compile_group_input.add_argument("-r", "--recursive", action="store_true", help="look for entities recursively (look in included and used files).")
-
-    parser_compile_group_output = parser_compile.add_argument_group(title="output", description=None)
-    parser_compile_group_output.add_argument("-o", "--output", nargs="?", default=None, const="", help="write output to an .scad File instead to console. (if not defined further 'foo.scad' becomes 'foo.lib.scad'.)")
-    parser_compile_group_output_override = parser_compile_group_output.add_mutually_exclusive_group()
-    parser_compile_group_output_override.add_argument("--override", action="store_true", help="Override existing output files without asking.")
-    parser_compile_group_output_override.add_argument("--dont-override", action="store_true", help="Do not override any existing output files - Print to console instead.")
-    parser_compile_group_output_override.add_argument("--ask", default="true", action="store_true", help="Ask if an existing file should be overwritten. (default)")
-    parser_compile_group_output.add_argument("-a", "--all-in-one", action="store_true", help="Copy the content of the input file, remove references and copy the needed entites. The whole model in one file, no dependencies.")
-    parser_compile_group_output.add_argument("--dont-create-dummies", action="store_true", help="Don't create dummies for unresolved dependencies.")
-
-    args = parser.parse_args()
-
-    if args.cmd == "info":
-        cmd_info_handler(args)
-    elif args.cmd == "compile":
-        cmd_compile_handler(args)
-else:
-        print(parser.error("a subcommand is required."))
+    @staticmethod
+    def reduceRedundanciesInDependencyTree(dependencyTree):
+        entities = list()
+        for entitiy, subTree in dependencyTree.items():
+            entities.append(entitiy)
+            if subTree is not None:
+                entities.extend(ScadLibrary.reduceRedundanciesInDependencyTree(subTree))
+        return list(set(entities))
