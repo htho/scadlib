@@ -16,10 +16,22 @@ globalScale = 10;
  * @param diameter The diameter of the planet.
  * @show a Planet.
  * @function-dependency r_from_dia Calculate radius from diameter.
- * @variable-dependency globalScale Scale of the solar system.
  */
 module genericPlanet(distance, diameter){
   translate([distance,0,0]) sphere(r=r_from_dia(diameter));
+}
+
+/**
+ * A generic scaled planet.
+ * This planet already is scaled according to global Scale.
+ *
+ * @param distance The distance from the center.
+ * @param diameter The diameter of the planet.
+ * @show a Planet.
+ * @module-dependency genericPlanet A generic planet.
+ */
+module genericScaledPlanet(distance, diameter){
+  genericPlanet(distance*globalScale, diameter*globalScale);
 }
 
 /**
