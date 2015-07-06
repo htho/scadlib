@@ -1,0 +1,12 @@
+{
+    "modules": {
+        "smallPlanet" : "secondPlanet",
+        "bigPlanet" : { "name" : "sunPlanet" },
+        "alienPlanet" : { "name" : "genericScaledPlanet", "arguments" : {"dist" : "distance", "dia" : "diameter"} },
+        "unused" : "useless"
+    },
+    "functions": {
+        "rfunc" : { "name" : "r_from_dia", "arguments" : ["dia"] }
+    },
+    "variables" : {}
+}

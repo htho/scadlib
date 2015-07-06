@@ -28,7 +28,7 @@
 include <../lib/testlib/planets.scad>
 use <../lib/testlib/tools.scad>
 
-/** We define the needed globalScale Variable */
+/** We (re)define the needed globalScale Variable */
 globalScale = 1.5;
 
 /**
