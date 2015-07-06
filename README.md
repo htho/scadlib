@@ -1,5 +1,5 @@
-# scadlib
-A tool to create and manage libraries for OpenSCAD (with fzz2scad in mind).
+# scadtool
+A tool to create and manage libraries for OpenSCAD.
 
 For an introduction on how to use scadlib.py see [testing/README.md](testing/README.md).
 
@@ -34,3 +34,9 @@ module B(){
     translate([10,0,0]) A();
 }
 ```
+#TODO
+
+- [ ] Add images to README
+- [ ] Create a walkthrough based on the examples
+
+Also see the [Issues](https://github.com/htho/fzz2scad/issues).
