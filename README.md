@@ -1,7 +1,7 @@
 # scadtool
 A tool to create and manage libraries for OpenSCAD.
 
-For an introduction on how to use scadlib.py see [testing/README.md](testing/README.md).
+For an introduction on how to use scadtool.py see [testing/README.md](testing/README.md).
 
 # scaddoc
 A specification proposal for a style to document scad (OpenSCAD) files.
