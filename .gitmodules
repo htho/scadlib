@@ -1,0 +1,3 @@
+[submodule "lib/electronic-components"]
+	path = lib/electronic-components
+	url = git@github.com:htho/scadlib-electronic-components.git
