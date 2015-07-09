@@ -144,7 +144,7 @@ include and use statements.
 
 `@variable-dependency NAME [DESCRIPTION]`
 :    Name and meaning of a (global) variable that is needed to calculate
-     the returned value (eg. 2.54 to calculate millimeters from inches).
+     the returned value (eg. 25.4 to calculate millimeters from inches).
 
 `@function-dependency NAME [DESCRIPTION]`
 :    Name and meaning of a function that is needed to calculate the
